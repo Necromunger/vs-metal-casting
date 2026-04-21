@@ -11,18 +11,20 @@ namespace MetalCasting
 
         public override void Start(ICoreAPI api)
         {
-            Instance = this;
             Mod.Logger.Notification("MetalCasting starting: " + api.Side);
+
+            if (api.Side == EnumAppSide.Server)
+            {
+                Instance = this;
+                NetworkManager = new RunnerNetworkManager();
+                NetworkManager.Initialize(api);
+            }
 
             api.RegisterBlockClass("BlockRunner", typeof(BlockRunner));
             api.RegisterBlockEntityClass("BERunner", typeof(BERunner));
         }
 
-        public override void StartServerSide(ICoreServerAPI api)
-        {
-            NetworkManager = new RunnerNetworkManager();
-            NetworkManager.Initialize(api);
-        }
+        public override void StartServerSide(ICoreServerAPI api) { }
 
         public override void StartClientSide(ICoreClientAPI api)
         {

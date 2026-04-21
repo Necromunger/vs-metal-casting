@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
 
 namespace MetalCasting;
@@ -21,5 +22,16 @@ public class RunnerNetwork
     {
         foreach (var p in other.Runners)
             if (!Runners.Contains(p)) Runners.Add(p.Copy());
+    }
+
+    public HashSet<BlockPos> GetConnectedMolds(IWorldAccessor world)
+    {
+        var molds = new HashSet<BlockPos>();
+        foreach (var p in Runners)
+        {
+            if (world.BlockAccessor.GetBlockEntity(p) is not BERunner be) continue;
+            foreach (var m in be.GetConnectedMolds()) molds.Add(m);
+        }
+        return molds;
     }
 }

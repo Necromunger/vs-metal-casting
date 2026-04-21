@@ -34,7 +34,10 @@ public class BERunner : BlockEntity
     {
         base.Initialize(api);
         if (api.Side != EnumAppSide.Server) return;
-        MetalCastingModSystem.Instance?.NetworkManager?.AddRunner(Pos);
+        var mgr = MetalCastingModSystem.Instance?.NetworkManager;
+        mgr?.AddRunner(Pos);
+        var netId = mgr?.GetNetwork(Pos)?.NetworkId;
+        api.Logger.Notification($"[MetalCasting] BERunner.Init at {Pos} mgr={(mgr == null ? "null" : "ok")} netId={netId}");
         UpdateConnections(true);
     }
 
@@ -78,11 +81,8 @@ public class BERunner : BlockEntity
             {
                 var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
                 var nb = Api.World.BlockAccessor.GetBlock(np);
-
-                if (connectedRunners[i] = nb is BlockRunner)
-                    continue;
-
-                connectedMolds[i] = IsMoldBlock(nb);
+                connectedRunners[i] = nb is BlockRunner;
+                connectedMolds[i] = !connectedRunners[i] && IsMoldBlock(nb);
             }
 
             UpdateVariant();
