@@ -6,6 +6,22 @@ namespace MetalCasting;
 
 public class BlockSprout : Block
 {
+    private static readonly BlockFacing[] Horizontals =
+        [BlockFacing.NORTH, BlockFacing.EAST, BlockFacing.SOUTH, BlockFacing.WEST];
+
+    public override bool CanPlaceBlock(IWorldAccessor world, IPlayer byPlayer, BlockSelection blockSel, ref string failureCode)
+    {
+        if (!base.CanPlaceBlock(world, byPlayer, blockSel, ref failureCode)) return false;
+
+        foreach (var f in Horizontals)
+        {
+            if (world.BlockAccessor.GetBlock(blockSel.Position.AddCopy(f)) is BlockRunner) return true;
+        }
+
+        failureCode = "requirerunnerneighbor";
+        return false;
+    }
+
     public override void OnNeighbourBlockChange(IWorldAccessor world, BlockPos pos, BlockPos neibpos)
     {
         base.OnNeighbourBlockChange(world, pos, neibpos);

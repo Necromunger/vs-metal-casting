@@ -176,9 +176,14 @@ public class BERunner : BlockEntity
                 var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
                 var nb = Api.World.BlockAccessor.GetBlock(np);
                 connectedRunners[i] = nb is BlockRunner;
-                connectedSprouts[i] = !connectedRunners[i] && nb is BlockSprout;
+                connectedSprouts[i] = false;
+                if (!connectedRunners[i] && nb is BlockSprout
+                    && Api.World.BlockAccessor.GetBlockEntity(np) is BESprout sbe
+                    && sbe.RunnerFacingIndex == BlockFacing.ALLFACES[i].Opposite.Index)
+                {
+                    connectedSprouts[i] = true;
+                }
             }
-            Api.Logger.Notification($"[MC] Runner {Pos} N={(connectedRunners[0]?"R":connectedSprouts[0]?"S":".")}E={(connectedRunners[1]?"R":connectedSprouts[1]?"S":".")}S={(connectedRunners[2]?"R":connectedSprouts[2]?"S":".")}W={(connectedRunners[3]?"R":connectedSprouts[3]?"S":".")}");
 
             UpdateVariant();
             MarkDirty(true);

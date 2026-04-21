@@ -9,6 +9,22 @@ public class BlockRunner : Block
 {
     private const int UnitsPerTickPerMold = 2;
 
+    public override bool CanPlaceBlock(IWorldAccessor world, IPlayer byPlayer, BlockSelection blockSel, ref string failureCode)
+    {
+        if (!base.CanPlaceBlock(world, byPlayer, blockSel, ref failureCode)) return false;
+
+        var below = blockSel.Position.DownCopy();
+        var belowBlock = world.BlockAccessor.GetBlock(below);
+
+        if (belowBlock is BlockRunner || !belowBlock.SideSolid[BlockFacing.UP.Index])
+        {
+            failureCode = "requiresolidground";
+            return false;
+        }
+
+        return true;
+    }
+
     public override void OnNeighbourBlockChange(IWorldAccessor world, BlockPos pos, BlockPos neibpos)
     {
         base.OnNeighbourBlockChange(world, pos, neibpos);

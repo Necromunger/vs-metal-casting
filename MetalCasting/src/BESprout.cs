@@ -29,6 +29,7 @@ public class BESprout : BlockEntity
     private int builtForBlockId = -1;
 
     public bool IsOrphan => runnerFacing < 0;
+    public int RunnerFacingIndex => runnerFacing;
 
     public override void Initialize(ICoreAPI api)
     {
@@ -66,16 +67,28 @@ public class BESprout : BlockEntity
         try
         {
             int newFacing = -1;
-            for (int i = 0; i < 4; i++)
+
+            // Preserve existing partner if it's still there
+            if (runnerFacing >= 0)
             {
-                var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
-                if (Api.World.BlockAccessor.GetBlock(np) is BlockRunner)
+                var cur = Pos.AddCopy(BlockFacing.ALLFACES[runnerFacing]);
+                if (Api.World.BlockAccessor.GetBlock(cur) is BlockRunner)
+                    newFacing = runnerFacing;
+            }
+
+            // No partner (fresh place, or previous partner was removed) — pick first available
+            if (newFacing < 0)
+            {
+                for (int i = 0; i < 4; i++)
                 {
-                    newFacing = i;
-                    break;
+                    var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
+                    if (Api.World.BlockAccessor.GetBlock(np) is BlockRunner)
+                    {
+                        newFacing = i;
+                        break;
+                    }
                 }
             }
-            Api.Logger.Notification($"[MC] Sprout {Pos} facing={newFacing} (prev={runnerFacing})");
 
             if (newFacing != runnerFacing)
             {
@@ -103,25 +116,22 @@ public class BESprout : BlockEntity
     private void UpdateVariant()
     {
         string newVariant = FacingVariants[runnerFacing];
-        Api.Logger.Notification($"[MC] Sprout.UpdateVariant at {Pos} newVariant={newVariant} currentVariant={currentVariant}");
         if (newVariant == currentVariant) return;
 
         var current = Api.World.BlockAccessor.GetBlock(Pos);
-        if (current == null) { Api.Logger.Notification("[MC]   bail: current block null"); return; }
+        if (current == null) return;
 
         int partsToRemove = 0;
         foreach (var v in current.Variant.Values)
             partsToRemove += v.Split('-').Length;
 
         string[] pathParts = current.Code.Path.Split('-');
-        Api.Logger.Notification($"[MC]   curCode={current.Code} partsToRemove={partsToRemove} pathParts=[{string.Join(",", pathParts)}]");
-        if (pathParts.Length <= partsToRemove) { Api.Logger.Notification("[MC]   bail: pathParts.Length <= partsToRemove"); return; }
+        if (pathParts.Length <= partsToRemove) return;
         string basePath = string.Join("-", pathParts.Take(pathParts.Length - partsToRemove));
 
         var newCode = new AssetLocation(current.Code.Domain, $"{basePath}-{newVariant}");
         var newBlock = Api.World.GetBlock(newCode);
-        Api.Logger.Notification($"[MC]   newCode={newCode} newBlock={(newBlock == null ? "null" : newBlock.Id.ToString())} curId={current.Id}");
-        if (newBlock == null || newBlock.Id == current.Id) { Api.Logger.Notification("[MC]   bail: newBlock null or same id"); return; }
+        if (newBlock == null || newBlock.Id == current.Id) return;
 
         var tree = new TreeAttribute();
         ToTreeAttributes(tree);
