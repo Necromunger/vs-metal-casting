@@ -140,6 +140,6 @@ public class RunnerNetworkManager
     {
         if (api == null) return true;
         var be = api.World.BlockAccessor.GetBlockEntity(from) as BERunner;
-        return be != null && be.IsConnected(side);
+        return be != null && be.IsConnectedToRunner(side);
     }
 }

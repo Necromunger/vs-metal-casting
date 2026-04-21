@@ -1,21 +1,34 @@
+using System.Collections.Generic;
 using System.Linq;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
+using Vintagestory.GameContent;
 
 namespace MetalCasting;
 
 public class BERunner : BlockEntity
 {
     // Index matches BlockFacing.ALLFACES: 0=N, 1=E, 2=S, 3=W
-    private readonly bool[] connectedSides = new bool[4];
+    private readonly bool[] connectedRunners = new bool[4];
+    private readonly bool[] connectedMolds = new bool[4];
     private string currentVariant = "straight-ns";
     private bool isUpdating;
 
-    public bool[] ConnectedSides => connectedSides;
-
     public bool IsConnected(BlockFacing side) =>
-        side != null && side.Index < 4 && connectedSides[side.Index];
+        side != null && side.Index < 4 && (connectedRunners[side.Index] || connectedMolds[side.Index]);
+
+    public bool IsConnectedToRunner(BlockFacing side) =>
+        side != null && side.Index < 4 && connectedRunners[side.Index];
+
+    public bool IsConnectedToMold(BlockFacing side) =>
+        side != null && side.Index < 4 && connectedMolds[side.Index];
+
+    public IEnumerable<BlockPos> GetConnectedMolds()
+    {
+        for (int i = 0; i < 4; i++)
+            if (connectedMolds[i]) yield return Pos.AddCopy(BlockFacing.ALLFACES[i]);
+    }
 
     public override void Initialize(ICoreAPI api)
     {
@@ -35,10 +48,10 @@ public class BERunner : BlockEntity
     {
         if (Api?.Side == EnumAppSide.Server)
         {
-            var neighbors = new System.Collections.Generic.List<BlockPos>();
+            var neighbors = new List<BlockPos>();
             for (int i = 0; i < 4; i++)
             {
-                if (connectedSides[i])
+                if (connectedRunners[i])
                     neighbors.Add(Pos.AddCopy(BlockFacing.ALLFACES[i]));
             }
 
@@ -64,7 +77,12 @@ public class BERunner : BlockEntity
             for (int i = 0; i < 4; i++)
             {
                 var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
-                connectedSides[i] = Api.World.BlockAccessor.GetBlock(np) is BlockRunner;
+                var nb = Api.World.BlockAccessor.GetBlock(np);
+
+                if (connectedRunners[i] = nb is BlockRunner)
+                    continue;
+
+                connectedMolds[i] = IsMoldBlock(nb);
             }
 
             UpdateVariant();
@@ -73,7 +91,7 @@ public class BERunner : BlockEntity
             if (!notifyNeighbors) return;
             for (int i = 0; i < 4; i++)
             {
-                if (!connectedSides[i]) continue;
+                if (!connectedRunners[i]) continue;
                 var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
                 if (Api.World.BlockAccessor.GetBlockEntity(np) is BERunner nbe)
                     nbe.UpdateConnections(false);
@@ -84,6 +102,8 @@ public class BERunner : BlockEntity
             isUpdating = false;
         }
     }
+
+    private static bool IsMoldBlock(Block block) => block is BlockIngotMold || block is BlockToolMold;
 
     private void UpdateVariant()
     {
@@ -114,16 +134,17 @@ public class BERunner : BlockEntity
             newBe.FromTreeAttributes(tree, Api.World);
             newBe.MarkDirty();
         }
+        
         Api.World.BlockAccessor.MarkBlockDirty(Pos);
         currentVariant = newVariant;
     }
 
     private string DetermineVariant()
     {
-        bool n = connectedSides[0];
-        bool e = connectedSides[1];
-        bool s = connectedSides[2];
-        bool w = connectedSides[3];
+        bool n = connectedRunners[0] || connectedMolds[0];
+        bool e = connectedRunners[1] || connectedMolds[1];
+        bool s = connectedRunners[2] || connectedMolds[2];
+        bool w = connectedRunners[3] || connectedMolds[3];
         int count = (n ? 1 : 0) + (e ? 1 : 0) + (s ? 1 : 0) + (w ? 1 : 0);
 
         switch (count)
@@ -157,19 +178,27 @@ public class BERunner : BlockEntity
     public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor world)
     {
         base.FromTreeAttributes(tree, world);
-        var bytes = tree.GetBytes("connectedSides", null);
-        if (bytes != null && bytes.Length == 4)
-            for (int i = 0; i < 4; i++) connectedSides[i] = bytes[i] == 1;
+        var runnerBytes = tree.GetBytes("connectedRunners", null);
+        if (runnerBytes != null && runnerBytes.Length == 4)
+            for (int i = 0; i < 4; i++) connectedRunners[i] = runnerBytes[i] == 1;
+        var moldBytes = tree.GetBytes("connectedMolds", null);
+        if (moldBytes != null && moldBytes.Length == 4)
+            for (int i = 0; i < 4; i++) connectedMolds[i] = moldBytes[i] == 1;
         currentVariant = tree.GetString("currentVariant", "straight-ns");
     }
 
     public override void ToTreeAttributes(ITreeAttribute tree)
     {
         base.ToTreeAttributes(tree);
-        var bytes = new byte[4];
-        for (int i = 0; i < 4; i++) bytes[i] = (byte)(connectedSides[i] ? 1 : 0);
-        tree.SetBytes("connectedSides", bytes);
+        var runnerBytes = new byte[4];
+        var moldBytes = new byte[4];
+        for (int i = 0; i < 4; i++)
+        {
+            runnerBytes[i] = (byte)(connectedRunners[i] ? 1 : 0);
+            moldBytes[i] = (byte)(connectedMolds[i] ? 1 : 0);
+        }
+        tree.SetBytes("connectedRunners", runnerBytes);
+        tree.SetBytes("connectedMolds", moldBytes);
         tree.SetString("currentVariant", currentVariant);
     }
 }
-

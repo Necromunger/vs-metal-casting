@@ -20,7 +20,8 @@
       ]
     }
   ],
-  "creativeinventory": { "general": [ "*" ] },
+  "creativeinventory": { "general": [ "*-straight-ns" ] },
+  "maxStackSize": 32,
   "textures": {
     "clay": { "base": "game:block/clay/aged-ceramic2" }
   },
@@ -54,7 +55,8 @@
   "lightAbsorption": 0,
   "sideopaque": { "all": false },
   "sidesolid": { "all": false },
-  "collisionbox": null,
+	"collisionbox": { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0.125, "z2": 1 },
+	"selectionbox": { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0.125, "z2": 1 },
   "attributes": {
     "handbook": {
       "groupBy": [ "runner-*" ]
