@@ -1,0 +1,63 @@
+{
+  "code": "runner",
+  "class": "BlockRunner",
+  "entityClass": "BERunner",
+  "variantgroups": [
+    {
+      "code": "type",
+      "states": [
+        "straight-ns",
+        "straight-ew",
+        "corner-ne",
+        "corner-se",
+        "corner-sw",
+        "corner-nw",
+        "tee-n",
+        "tee-e",
+        "tee-s",
+        "tee-w",
+        "cross"
+      ]
+    }
+  ],
+  "creativeinventory": { "general": [ "*" ] },
+  "textures": {
+    "clay": { "base": "game:block/clay/aged-ceramic2" }
+  },
+  "shapeByType": {
+    "*-straight-ns": { "base": "runner_straight" },
+    "*-straight-ew": { "base": "runner_straight", "rotateY": 90 },
+    "*-corner-ne":   { "base": "runner_corner" },
+    "*-corner-se":   { "base": "runner_corner", "rotateY": -90 },
+    "*-corner-sw":   { "base": "runner_corner", "rotateY": -180 },
+    "*-corner-nw":   { "base": "runner_corner", "rotateY": -270 },
+    "*-tee-n":       { "base": "runner_tee", "rotateY": 180 },
+    "*-tee-e":       { "base": "runner_tee", "rotateY": 90 },
+    "*-tee-s":       { "base": "runner_tee" },
+    "*-tee-w":       { "base": "runner_tee", "rotateY": 270 },
+    "*-cross":       { "base": "runner_cross" }
+  },
+  "shapeInventoryByType": {
+    "*-straight-ns": { "base": "runner_straight" },
+    "*-straight-ew": { "base": "runner_straight", "rotateY": 90 },
+    "*-corner-ne":   { "base": "runner_corner" },
+    "*-corner-se":   { "base": "runner_corner", "rotateY": -90 },
+    "*-corner-sw":   { "base": "runner_corner", "rotateY": -180 },
+    "*-corner-nw":   { "base": "runner_corner", "rotateY": -270 },
+    "*-tee-n":       { "base": "runner_tee", "rotateY": 180 },
+    "*-tee-e":       { "base": "runner_tee", "rotateY": 90 },
+    "*-tee-s":       { "base": "runner_tee" },
+    "*-tee-w":       { "base": "runner_tee", "rotateY": 270 },
+    "*-cross":       { "base": "runner_cross" }
+  },
+  "drawType": "json",
+  "lightAbsorption": 0,
+  "sideopaque": { "all": false },
+  "sidesolid": { "all": false },
+  "collisionbox": null,
+  "attributes": {
+    "handbook": {
+      "groupBy": [ "runner-*" ]
+    }
+  }
+}

@@ -1,5 +1,8 @@
 # Metal Casting
 
+## MVP
+Player pours a default crucible onto a **runner network**. Molten metal flows through the connected runners and fills any molds attached to that network.
+
 ## New blocks
 
 ### Runner Straight
@@ -13,13 +16,3 @@ Corner section for running liquid metals
 
 ### Runner Tee
 T Junction section for running liquid metals
-
-### Sprue
-Input for liquid metals
-
-### Sprout
-Output for liquid metals
-
-## Research
-Example of previous pipe network:
-https://github.com/tehtelev/ElectricalProgressive/blob/1.22.x/ElectricalProgressive-Transport/Content/NormalPipe/BEPipe.cs
