@@ -35,11 +35,18 @@ public class BlockRunner : Block
         var molds = net.GetConnectedMolds(world);
         if (molds.Count == 0) return true;
 
-        DistributeCrucibleIntoMolds(world, crucible, slot, molds, byPlayer);
+        if (DistributeCrucibleIntoMolds(world, crucible, slot, molds, byPlayer))
+        {
+            foreach (var rpos in net.Runners)
+            {
+                if (world.BlockAccessor.GetBlockEntity(rpos) is BERunner rbe)
+                    rbe.BeginFlow();
+            }
+        }
         return true;
     }
 
-    private static void DistributeCrucibleIntoMolds(
+    private static bool DistributeCrucibleIntoMolds(
         IWorldAccessor world,
         BlockSmeltedContainer crucible,
         ItemSlot crucibleSlot,
@@ -49,8 +56,8 @@ public class BlockRunner : Block
         var contents = crucible.GetContents(world, crucibleSlot.Itemstack);
         ItemStack metalStack = contents.Key;
         int totalUnits = contents.Value;
-        if (metalStack == null || totalUnits <= 0) return;
-        if (crucible.HasSolidifed(crucibleSlot.Itemstack, metalStack, world)) return;
+        if (metalStack == null || totalUnits <= 0) return false;
+        if (crucible.HasSolidifed(crucibleSlot.Itemstack, metalStack, world)) return false;
 
         var sinks = new List<ILiquidMetalSink>();
         foreach (var pos in molds)
@@ -63,7 +70,7 @@ public class BlockRunner : Block
             }
         }
 
-        if (sinks.Count == 0) return;
+        if (sinks.Count == 0) return false;
 
         float temperature = crucibleSlot.Itemstack.Collectible.GetTemperature(world, crucibleSlot.Itemstack);
 
@@ -81,12 +88,13 @@ public class BlockRunner : Block
             totalPoured += before - share;
         }
 
-        if (totalPoured <= 0) return;
+        if (totalPoured <= 0) return false;
 
         int remaining = totalUnits - totalPoured;
         crucibleSlot.Itemstack.Attributes.SetInt("units", remaining);
         if (remaining <= 0) crucibleSlot.Itemstack.Attributes.RemoveAttribute("output");
         crucibleSlot.MarkDirty();
+        return true;
     }
 
     private static void PourIntoSink(ILiquidMetalSink sink, ItemStack metal, ref int amount, float temperature)

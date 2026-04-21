@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
@@ -14,6 +15,13 @@ public class BERunner : BlockEntity
     private readonly bool[] connectedMolds = new bool[4];
     private string currentVariant = "straight-ns";
     private bool isUpdating;
+
+    // Visual flow state
+    private const int PourIdleMs = 300;
+    public bool IsPouring { get; private set; }
+    private long pourExpiryMs;
+    private MeshData baseMesh;
+    private MeshData liquidMesh;
 
     public bool IsConnected(BlockFacing side) =>
         side != null && side.Index < 4 && (connectedRunners[side.Index] || connectedMolds[side.Index]);
@@ -33,12 +41,91 @@ public class BERunner : BlockEntity
     public override void Initialize(ICoreAPI api)
     {
         base.Initialize(api);
-        if (api.Side != EnumAppSide.Server) return;
-        var mgr = MetalCastingModSystem.Instance?.NetworkManager;
-        mgr?.AddRunner(Pos);
-        var netId = mgr?.GetNetwork(Pos)?.NetworkId;
-        api.Logger.Notification($"[MetalCasting] BERunner.Init at {Pos} mgr={(mgr == null ? "null" : "ok")} netId={netId}");
-        UpdateConnections(true);
+        if (api.Side == EnumAppSide.Server)
+        {
+            var mgr = MetalCastingModSystem.Instance?.NetworkManager;
+            mgr?.AddRunner(Pos);
+            var netId = mgr?.GetNetwork(Pos)?.NetworkId;
+            api.Logger.Notification($"[MetalCasting] BERunner.Init at {Pos} mgr={(mgr == null ? "null" : "ok")} netId={netId}");
+            UpdateConnections(true);
+            RegisterGameTickListener(OnTickPourExpiry, 100);
+        }
+    }
+
+    public void BeginFlow()
+    {
+        if (Api == null) return;
+        pourExpiryMs = Api.World.ElapsedMilliseconds + PourIdleMs;
+        if (!IsPouring)
+        {
+            IsPouring = true;
+            MarkDirty(true);
+        }
+    }
+
+    private void OnTickPourExpiry(float dt)
+    {
+        if (!IsPouring) return;
+        if (Api.World.ElapsedMilliseconds < pourExpiryMs) return;
+        IsPouring = false;
+        MarkDirty(true);
+    }
+
+    public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tesselator)
+    {
+        if (Api is ICoreClientAPI capi && baseMesh == null) BuildMeshes(capi);
+        if (baseMesh == null) return false;
+        mesher.AddMeshData(baseMesh);
+        if (IsPouring && liquidMesh != null) mesher.AddMeshData(liquidMesh);
+        return true;
+    }
+
+    private void BuildMeshes(ICoreClientAPI capi)
+    {
+        var block = capi.World.BlockAccessor.GetBlock(Pos);
+        if (block?.Shape?.Base == null) return;
+
+        var shapePath = block.Shape.Base.Clone()
+            .WithPathAppendixOnce(".json")
+            .WithPathPrefixOnce("shapes/");
+        var shape = Shape.TryGet(capi, shapePath);
+        if (shape?.Elements == null) return;
+
+        var allNames = shape.Elements.Select(e => e.Name).Where(n => n != null).ToArray();
+        var baseNames = allNames.Where(n => !n.StartsWith("liquid_")).ToArray();
+        var liquidNames = allNames.Where(n => n.StartsWith("liquid_")).ToArray();
+
+        var rotation = new Vec3f(
+            block.Shape.rotateX,
+            block.Shape.rotateY,
+            block.Shape.rotateZ);
+
+        capi.Tesselator.TesselateShape(
+            typeForLogging: block.Code.ToString(),
+            shapeBase: shape,
+            modeldata: out baseMesh,
+            texSource: capi.Tesselator.GetTextureSource(block),
+            meshRotationDeg: rotation,
+            generalGlowLevel: 0,
+            climateColorMapId: 0,
+            seasonColorMapId: 0,
+            worldvertexindex: null,
+            selectiveElements: baseNames);
+
+        if (liquidNames.Length > 0)
+        {
+            capi.Tesselator.TesselateShape(
+                typeForLogging: block.Code.ToString() + "-liquid",
+                shapeBase: shape,
+                modeldata: out liquidMesh,
+                texSource: capi.Tesselator.GetTextureSource(block),
+                meshRotationDeg: rotation,
+                generalGlowLevel: 255,
+                climateColorMapId: 0,
+                seasonColorMapId: 0,
+                worldvertexindex: null,
+                selectiveElements: liquidNames);
+        }
     }
 
     public override void OnBlockPlaced(ItemStack byItemStack = null)

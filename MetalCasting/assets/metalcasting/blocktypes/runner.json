@@ -23,7 +23,8 @@
   "creativeinventory": { "general": [ "*-straight-ns" ] },
   "maxStackSize": 32,
   "textures": {
-    "clay": { "base": "game:block/clay/aged-ceramic2" }
+    "clay":  { "base": "game:block/clay/aged-ceramic2" },
+    "metal": { "base": "game:block/metal/ingot/copper" }
   },
   "shapeByType": {
     "*-straight-ns": { "base": "runner_straight" },
