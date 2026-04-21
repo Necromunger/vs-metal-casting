@@ -4,7 +4,6 @@ using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
-using Vintagestory.GameContent;
 
 namespace MetalCasting;
 
@@ -12,7 +11,7 @@ public class BERunner : BlockEntity
 {
     // Index matches BlockFacing.ALLFACES: 0=N, 1=E, 2=S, 3=W
     private readonly bool[] connectedRunners = new bool[4];
-    private readonly bool[] connectedMolds = new bool[4];
+    private readonly bool[] connectedSprouts = new bool[4];
     private string currentVariant = "straight-ns";
     private bool isUpdating;
 
@@ -22,20 +21,21 @@ public class BERunner : BlockEntity
     private long pourExpiryMs;
     private MeshData baseMesh;
     private MeshData liquidMesh;
+    private int builtForBlockId = -1;
 
     public bool IsConnected(BlockFacing side) =>
-        side != null && side.Index < 4 && (connectedRunners[side.Index] || connectedMolds[side.Index]);
+        side != null && side.Index < 4 && (connectedRunners[side.Index] || connectedSprouts[side.Index]);
 
     public bool IsConnectedToRunner(BlockFacing side) =>
         side != null && side.Index < 4 && connectedRunners[side.Index];
 
-    public bool IsConnectedToMold(BlockFacing side) =>
-        side != null && side.Index < 4 && connectedMolds[side.Index];
+    public bool IsConnectedToSprout(BlockFacing side) =>
+        side != null && side.Index < 4 && connectedSprouts[side.Index];
 
-    public IEnumerable<BlockPos> GetConnectedMolds()
+    public IEnumerable<BlockPos> GetConnectedSprouts()
     {
         for (int i = 0; i < 4; i++)
-            if (connectedMolds[i]) yield return Pos.AddCopy(BlockFacing.ALLFACES[i]);
+            if (connectedSprouts[i]) yield return Pos.AddCopy(BlockFacing.ALLFACES[i]);
     }
 
     public override void Initialize(ICoreAPI api)
@@ -70,7 +70,17 @@ public class BERunner : BlockEntity
 
     public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tesselator)
     {
-        if (Api is ICoreClientAPI capi && baseMesh == null) BuildMeshes(capi);
+        if (Api is ICoreClientAPI capi)
+        {
+            int id = capi.World.BlockAccessor.GetBlock(Pos)?.Id ?? -1;
+            if (id != builtForBlockId)
+            {
+                baseMesh = null;
+                liquidMesh = null;
+                BuildMeshes(capi);
+                builtForBlockId = id;
+            }
+        }
         if (baseMesh == null) return false;
         mesher.AddMeshData(baseMesh);
         if (IsPouring && liquidMesh != null) mesher.AddMeshData(liquidMesh);
@@ -166,8 +176,9 @@ public class BERunner : BlockEntity
                 var np = Pos.AddCopy(BlockFacing.ALLFACES[i]);
                 var nb = Api.World.BlockAccessor.GetBlock(np);
                 connectedRunners[i] = nb is BlockRunner;
-                connectedMolds[i] = !connectedRunners[i] && IsMoldBlock(nb);
+                connectedSprouts[i] = !connectedRunners[i] && nb is BlockSprout;
             }
+            Api.Logger.Notification($"[MC] Runner {Pos} N={(connectedRunners[0]?"R":connectedSprouts[0]?"S":".")}E={(connectedRunners[1]?"R":connectedSprouts[1]?"S":".")}S={(connectedRunners[2]?"R":connectedSprouts[2]?"S":".")}W={(connectedRunners[3]?"R":connectedSprouts[3]?"S":".")}");
 
             UpdateVariant();
             MarkDirty(true);
@@ -186,8 +197,6 @@ public class BERunner : BlockEntity
             isUpdating = false;
         }
     }
-
-    private static bool IsMoldBlock(Block block) => block is BlockIngotMold || block is BlockToolMold;
 
     private void UpdateVariant()
     {
@@ -225,10 +234,10 @@ public class BERunner : BlockEntity
 
     private string DetermineVariant()
     {
-        bool n = connectedRunners[0] || connectedMolds[0];
-        bool e = connectedRunners[1] || connectedMolds[1];
-        bool s = connectedRunners[2] || connectedMolds[2];
-        bool w = connectedRunners[3] || connectedMolds[3];
+        bool n = connectedRunners[0] || connectedSprouts[0];
+        bool e = connectedRunners[1] || connectedSprouts[1];
+        bool s = connectedRunners[2] || connectedSprouts[2];
+        bool w = connectedRunners[3] || connectedSprouts[3];
         int count = (n ? 1 : 0) + (e ? 1 : 0) + (s ? 1 : 0) + (w ? 1 : 0);
 
         switch (count)
@@ -265,9 +274,9 @@ public class BERunner : BlockEntity
         var runnerBytes = tree.GetBytes("connectedRunners", null);
         if (runnerBytes != null && runnerBytes.Length == 4)
             for (int i = 0; i < 4; i++) connectedRunners[i] = runnerBytes[i] == 1;
-        var moldBytes = tree.GetBytes("connectedMolds", null);
+        var moldBytes = tree.GetBytes("connectedSprouts", null);
         if (moldBytes != null && moldBytes.Length == 4)
-            for (int i = 0; i < 4; i++) connectedMolds[i] = moldBytes[i] == 1;
+            for (int i = 0; i < 4; i++) connectedSprouts[i] = moldBytes[i] == 1;
         currentVariant = tree.GetString("currentVariant", "straight-ns");
         bool wasPouring = IsPouring;
         IsPouring = tree.GetBool("isPouring", false);
@@ -285,10 +294,10 @@ public class BERunner : BlockEntity
         for (int i = 0; i < 4; i++)
         {
             runnerBytes[i] = (byte)(connectedRunners[i] ? 1 : 0);
-            moldBytes[i] = (byte)(connectedMolds[i] ? 1 : 0);
+            moldBytes[i] = (byte)(connectedSprouts[i] ? 1 : 0);
         }
         tree.SetBytes("connectedRunners", runnerBytes);
-        tree.SetBytes("connectedMolds", moldBytes);
+        tree.SetBytes("connectedSprouts", moldBytes);
         tree.SetString("currentVariant", currentVariant);
         tree.SetBool("isPouring", IsPouring);
     }

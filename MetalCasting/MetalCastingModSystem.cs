@@ -23,6 +23,8 @@ namespace MetalCasting
 
             api.RegisterBlockClass("BlockRunner", typeof(BlockRunner));
             api.RegisterBlockEntityClass("BERunner", typeof(BERunner));
+            api.RegisterBlockClass("BlockSprout", typeof(BlockSprout));
+            api.RegisterBlockEntityClass("BESprout", typeof(BESprout));
         }
 
         public override void StartServerSide(ICoreServerAPI api) { }

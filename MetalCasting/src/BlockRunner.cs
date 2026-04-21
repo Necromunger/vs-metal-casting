@@ -9,7 +9,6 @@ public class BlockRunner : Block
 {
     private const int UnitsPerTickPerMold = 2;
 
-
     public override void OnNeighbourBlockChange(IWorldAccessor world, BlockPos pos, BlockPos neibpos)
     {
         base.OnNeighbourBlockChange(world, pos, neibpos);
@@ -30,38 +29,55 @@ public class BlockRunner : Block
         var net = MetalCastingModSystem.Instance?.NetworkManager?.GetNetwork(blockSel.Position);
         if (net == null || net.Runners.Count == 0) return true;
 
-        var molds = net.GetConnectedMolds(world);
-        if (molds.Count == 0) return true;
-
-        var interactBe = world.BlockAccessor.GetBlockEntity(blockSel.Position) as BERunner;
-        bool wasPouring = interactBe?.IsPouring == true;
-
-        if (DistributeCrucibleIntoMolds(world, crucible, slot, molds, byPlayer))
-        {
-            foreach (var rpos in net.Runners)
-            {
-                if (world.BlockAccessor.GetBlockEntity(rpos) is BERunner rbe)
-                    rbe.BeginFlow();
-            }
-
-            float temperature = slot.Itemstack.Collectible.GetTemperature(world, slot.Itemstack);
-
-            if (!wasPouring)
-            {
-                world.PlaySoundAt(
-                    new AssetLocation("sounds/pourmetal"),
-                    blockSel.Position.X + 0.5,
-                    blockSel.Position.Y + 0.5,
-                    blockSel.Position.Z + 0.5,
-                    byPlayer);
-            }
-
-            SpawnPourParticles(world, blockSel.Position, temperature, byPlayer);
-        }
+        TryPourFromCrucible(world, crucible, slot, net, blockSel.Position, byPlayer);
         return true;
     }
 
-    private static void SpawnPourParticles(IWorldAccessor world, BlockPos pos, float temperature, IPlayer byPlayer)
+    public static void TryPourFromCrucible(
+        IWorldAccessor world,
+        BlockSmeltedContainer crucible,
+        ItemSlot crucibleSlot,
+        RunnerNetwork net,
+        BlockPos anchorPos,
+        IPlayer byPlayer)
+    {
+        var sprouts = net.GetConnectedSprouts(world);
+        if (sprouts.Count == 0) return;
+
+        bool wasPouring = false;
+        foreach (var s in sprouts) { if (s.IsPouring) { wasPouring = true; break; } }
+
+        // Session start → refresh each sprout's mold cache
+        if (!wasPouring)
+        {
+            foreach (var s in sprouts) s.InvalidateMoldCache();
+        }
+
+        var molds = net.GetDeliveryMolds(world, sprouts);
+        if (molds.Count == 0) return;
+
+        if (!DistributeCrucibleIntoMolds(world, crucible, crucibleSlot, molds, byPlayer)) return;
+
+        foreach (var rpos in net.Runners)
+        {
+            if (world.BlockAccessor.GetBlockEntity(rpos) is BERunner rbe) rbe.BeginFlow();
+        }
+        foreach (var sbe in sprouts) sbe.BeginFlow();
+
+        float temperature = crucibleSlot.Itemstack.Collectible.GetTemperature(world, crucibleSlot.Itemstack);
+        if (!wasPouring)
+        {
+            world.PlaySoundAt(
+                new AssetLocation("sounds/pourmetal"),
+                anchorPos.X + 0.5,
+                anchorPos.Y + 0.5,
+                anchorPos.Z + 0.5,
+                null);
+        }
+        SpawnPourParticles(world, anchorPos, temperature);
+    }
+
+    private static void SpawnPourParticles(IWorldAccessor world, BlockPos pos, float temperature)
     {
         Vec3d target = pos.ToVec3d().Add(0.5, 0.2, 0.5);
 
@@ -71,7 +87,7 @@ public class BlockRunner : Block
         BlockSmeltedContainer.bigMetalSparks.MinPos = target.AddCopy(-0.25, 0.0, -0.25);
         BlockSmeltedContainer.bigMetalSparks.AddPos.Set(0.5, 0.0, 0.5);
         BlockSmeltedContainer.bigMetalSparks.VertexFlags = (byte)GameMath.Clamp((int)temperature - 770, 48, 128);
-        world.SpawnParticles(BlockSmeltedContainer.bigMetalSparks, byPlayer);
+        world.SpawnParticles(BlockSmeltedContainer.bigMetalSparks, null);
 
         world.SpawnParticles(
             4f,
@@ -84,7 +100,7 @@ public class BlockRunner : Block
             -0.05f,
             0.4f,
             EnumParticleModel.Quad,
-            byPlayer);
+            null);
     }
 
     private static bool DistributeCrucibleIntoMolds(
