@@ -8,8 +8,8 @@
 	"textureSizes": {
 	},
 	"textures": {
-		"ceramic": "block/clay/aged-ceramic2",
-		"metal": "block/metal/ingot/copper"
+		"ceramic": "game:block/clay/aged-ceramic2",
+		"metal": "game:block/metal/ingot/copper"
 	},
 	"elements": [
 		{

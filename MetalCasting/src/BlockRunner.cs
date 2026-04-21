@@ -7,7 +7,7 @@ namespace MetalCasting;
 
 public class BlockRunner : Block
 {
-    private const int UnitsPerTick = 20;
+    private const int UnitsPerTickPerMold = 2;
 
 
     public override void OnNeighbourBlockChange(IWorldAccessor world, BlockPos pos, BlockPos neibpos)
@@ -27,13 +27,14 @@ public class BlockRunner : Block
 
         if (world.Side != EnumAppSide.Server) return true;
 
-        var mgr = MetalCastingModSystem.Instance?.NetworkManager;
-        var net = mgr?.GetNetwork(blockSel.Position);
-        world.Api.Logger.Notification($"[MetalCasting] Interact at {blockSel.Position} mgr={(mgr == null ? "null" : "ok")} net={(net == null ? "null" : $"id={net.NetworkId} runners={net.Runners.Count}")}");
+        var net = MetalCastingModSystem.Instance?.NetworkManager?.GetNetwork(blockSel.Position);
         if (net == null || net.Runners.Count == 0) return true;
 
         var molds = net.GetConnectedMolds(world);
         if (molds.Count == 0) return true;
+
+        var interactBe = world.BlockAccessor.GetBlockEntity(blockSel.Position) as BERunner;
+        bool wasPouring = interactBe?.IsPouring == true;
 
         if (DistributeCrucibleIntoMolds(world, crucible, slot, molds, byPlayer))
         {
@@ -42,8 +43,48 @@ public class BlockRunner : Block
                 if (world.BlockAccessor.GetBlockEntity(rpos) is BERunner rbe)
                     rbe.BeginFlow();
             }
+
+            float temperature = slot.Itemstack.Collectible.GetTemperature(world, slot.Itemstack);
+
+            if (!wasPouring)
+            {
+                world.PlaySoundAt(
+                    new AssetLocation("sounds/pourmetal"),
+                    blockSel.Position.X + 0.5,
+                    blockSel.Position.Y + 0.5,
+                    blockSel.Position.Z + 0.5,
+                    byPlayer);
+            }
+
+            SpawnPourParticles(world, blockSel.Position, temperature, byPlayer);
         }
         return true;
+    }
+
+    private static void SpawnPourParticles(IWorldAccessor world, BlockPos pos, float temperature, IPlayer byPlayer)
+    {
+        Vec3d target = pos.ToVec3d().Add(0.5, 0.2, 0.5);
+
+        BlockSmeltedContainer.bigMetalSparks.MinQuantity = 0.4f;
+        BlockSmeltedContainer.bigMetalSparks.MinVelocity.Set(-2f, 1f, -2f);
+        BlockSmeltedContainer.bigMetalSparks.AddVelocity.Set(4f, 5f, 4f);
+        BlockSmeltedContainer.bigMetalSparks.MinPos = target.AddCopy(-0.25, 0.0, -0.25);
+        BlockSmeltedContainer.bigMetalSparks.AddPos.Set(0.5, 0.0, 0.5);
+        BlockSmeltedContainer.bigMetalSparks.VertexFlags = (byte)GameMath.Clamp((int)temperature - 770, 48, 128);
+        world.SpawnParticles(BlockSmeltedContainer.bigMetalSparks, byPlayer);
+
+        world.SpawnParticles(
+            4f,
+            ColorUtil.ToRgba(50, 180, 180, 180),
+            target.AddCopy(-0.5, 0.0, -0.5),
+            target.AddCopy(0.5, 0.15, 0.5),
+            new Vec3f(-0.5f, 0f, -0.5f),
+            new Vec3f(0.5f, 0f, 0.5f),
+            1.5f,
+            -0.05f,
+            0.4f,
+            EnumParticleModel.Quad,
+            byPlayer);
     }
 
     private static bool DistributeCrucibleIntoMolds(
@@ -74,15 +115,12 @@ public class BlockRunner : Block
 
         float temperature = crucibleSlot.Itemstack.Collectible.GetTemperature(world, crucibleSlot.Itemstack);
 
-        int budget = System.Math.Min(UnitsPerTick, totalUnits);
-        int perShare = System.Math.Max(1, budget / sinks.Count);
-
         int totalPoured = 0;
         foreach (var sink in sinks)
         {
-            int room = budget - totalPoured;
-            if (room <= 0) break;
-            int share = System.Math.Min(perShare, room);
+            int remaining = totalUnits - totalPoured;
+            if (remaining <= 0) break;
+            int share = System.Math.Min(UnitsPerTickPerMold, remaining);
             int before = share;
             PourIntoSink(sink, metalStack, ref share, temperature);
             totalPoured += before - share;
@@ -90,9 +128,17 @@ public class BlockRunner : Block
 
         if (totalPoured <= 0) return false;
 
-        int remaining = totalUnits - totalPoured;
-        crucibleSlot.Itemstack.Attributes.SetInt("units", remaining);
-        if (remaining <= 0) crucibleSlot.Itemstack.Attributes.RemoveAttribute("output");
+        int leftInCrucible = totalUnits - totalPoured;
+        crucibleSlot.Itemstack.Attributes.SetInt("units", leftInCrucible);
+        if (leftInCrucible <= 0)
+        {
+            var emptiedCode = crucible.Attributes["emptiedBlockCode"].AsString();
+            if (emptiedCode != null)
+            {
+                var emptyBlock = world.GetBlock(AssetLocation.Create(emptiedCode, crucible.Code.Domain));
+                if (emptyBlock != null) crucibleSlot.Itemstack = new ItemStack(emptyBlock);
+            }
+        }
         crucibleSlot.MarkDirty();
         return true;
     }

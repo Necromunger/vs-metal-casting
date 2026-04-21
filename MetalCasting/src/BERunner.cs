@@ -43,10 +43,7 @@ public class BERunner : BlockEntity
         base.Initialize(api);
         if (api.Side == EnumAppSide.Server)
         {
-            var mgr = MetalCastingModSystem.Instance?.NetworkManager;
-            mgr?.AddRunner(Pos);
-            var netId = mgr?.GetNetwork(Pos)?.NetworkId;
-            api.Logger.Notification($"[MetalCasting] BERunner.Init at {Pos} mgr={(mgr == null ? "null" : "ok")} netId={netId}");
+            MetalCastingModSystem.Instance?.NetworkManager?.AddRunner(Pos);
             UpdateConnections(true);
             RegisterGameTickListener(OnTickPourExpiry, 100);
         }
@@ -109,7 +106,7 @@ public class BERunner : BlockEntity
             generalGlowLevel: 0,
             climateColorMapId: 0,
             seasonColorMapId: 0,
-            worldvertexindex: null,
+            quantityElements: null,
             selectiveElements: baseNames);
 
         if (liquidNames.Length > 0)
@@ -123,7 +120,7 @@ public class BERunner : BlockEntity
                 generalGlowLevel: 255,
                 climateColorMapId: 0,
                 seasonColorMapId: 0,
-                worldvertexindex: null,
+                quantityElements: null,
                 selectiveElements: liquidNames);
         }
     }
@@ -272,6 +269,12 @@ public class BERunner : BlockEntity
         if (moldBytes != null && moldBytes.Length == 4)
             for (int i = 0; i < 4; i++) connectedMolds[i] = moldBytes[i] == 1;
         currentVariant = tree.GetString("currentVariant", "straight-ns");
+        bool wasPouring = IsPouring;
+        IsPouring = tree.GetBool("isPouring", false);
+        if (wasPouring != IsPouring && Api?.Side == EnumAppSide.Client)
+        {
+            Api.World.BlockAccessor.MarkBlockDirty(Pos);
+        }
     }
 
     public override void ToTreeAttributes(ITreeAttribute tree)
@@ -287,5 +290,6 @@ public class BERunner : BlockEntity
         tree.SetBytes("connectedRunners", runnerBytes);
         tree.SetBytes("connectedMolds", moldBytes);
         tree.SetString("currentVariant", currentVariant);
+        tree.SetBool("isPouring", IsPouring);
     }
 }
