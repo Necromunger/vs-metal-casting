@@ -25,6 +25,8 @@ namespace MetalCasting
             api.RegisterBlockEntityClass("BERunner", typeof(BERunner));
             api.RegisterBlockClass("BlockSprout", typeof(BlockSprout));
             api.RegisterBlockEntityClass("BESprout", typeof(BESprout));
+            api.RegisterBlockClass("BlockTiltingCrucibleFrame", typeof(BlockTiltingCrucibleFrame));
+            api.RegisterBlockEntityClass("BETiltingCrucibleFrame", typeof(BETiltingCrucibleFrame));
         }
 
         public override void StartServerSide(ICoreServerAPI api) { }

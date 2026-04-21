@@ -1,0 +1,72 @@
+{
+	code: "largecrucible",
+	behaviors: [
+		{ name: "GroundStorable", properties: { layout: 'Quadrants', placeRemoveSound: 'sounds/player/build', collisionBox: { x1: 0, y1: 0, z1: 0, x2: 1, y2: 0.125, z2: 1 } } },
+		{ name: "Unplaceable" },
+		{ name: "RightClickPickup" }
+	],
+	classByType: {
+		"largecrucible-*-fired": "BlockSmeltingContainer",
+		"largecrucible-*-smelted": "BlockSmeltedContainer"
+	},
+	heldTpIdleAnimation: "holdbothhandslarge",
+	variantgroups: [
+		{ code: "color", states: ["blue", "fire", "black", "brown", "cream", "earthyorange", "gray", "orange", "red", "tan"] },
+		{ code: "type", states: ["fired", "smelted"] }
+	],
+	shape: { base: "game:block/clay/crucible" },
+	textures: { all: { base: "game:block/clay/hardened/{color}", overlays: [ "game:block/clay/overlay/pot" ] } },
+	attributes: {
+		tempGlowMode: 1,
+		handbook: { groupBy: ["largecrucible-*-{type}"] }
+	},
+	attributesByType: {
+		"largecrucible-*-fired": {
+			cookingContainerSlots: 12,
+			maxContentDimensions: { width: 0.125, height: 0.25, length: 0.125 },
+			storageType: 4,
+			maxHeatableTemp: 1600
+		},
+		"largecrucible-*-smelted": {
+			emptiedBlockCode: "metalcasting:largecrucible-{color}-fired"
+		}
+	},
+	entityclassByType: {
+		"*-smelted": "SmeltedContainer",
+		"*-fired": null
+	},
+	combustiblePropsByType: {
+		"largecrucible-*-smelted": {
+			meltingPoint: 2400,
+			meltingDuration: 45,
+			smeltedRatio: 1,
+			smeltingType: "bake",
+			smeltedStack: { type: "block", code: "metalcasting:largecrucible-{color}-fired" },
+			requiresContainer: false
+		}
+	},
+	blockmaterial: "Ceramic",
+	creativeinventory: { "general": ["*-fired"] },
+	maxStackSizeByType: { "*-fired": 4, "*-smelted": 1 },
+	lightAbsorption: 0,
+	sounds: { walk: "walk/stone" },
+	sideopaque: { all: false },
+	sidesolid: { all: false },
+	emitsideao: { all: false },
+	collisionbox: { x1: 0.3125, y1: 0, z1: 0.3125, x2: 0.6875, y2: 0.4375, z2: 0.6875 },
+	selectionbox: { x1: 0.3125, y1: 0, z1: 0.3125, x2: 0.6875, y2: 0.4375, z2: 0.6875 },
+	guiTransform: {
+		origin: { x: 0.5, y: 0.2, z: 0.5 },
+		scale: 2.4
+	},
+	groundTransform: {
+		origin: { x: 0.5, y: 0, z: 0.5 },
+		scale: 3
+	},
+	tpHandTransform: {
+		translation: { x: -0.5, y: 0, z: -0.4 },
+		rotation: { x: 13, y: 11, z: -76 },
+		origin: { x: 0.5, y: 0, z: 0.5 },
+		scale: 0.82
+	}
+}
