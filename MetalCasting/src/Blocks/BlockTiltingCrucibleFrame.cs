@@ -1,8 +1,7 @@
 using Vintagestory.API.Common;
-using Vintagestory.API.MathTools;
 using Vintagestory.GameContent;
 
-namespace MetalCasting;
+namespace MetalCasting.Blocks;
 
 public class BlockTiltingCrucibleFrame : Block
 {
@@ -25,18 +24,8 @@ public class BlockTiltingCrucibleFrame : Block
         if (blockSel == null) return false;
 
         if (world.BlockAccessor.GetBlockEntity(blockSel.Position) is BETiltingCrucibleFrame be)
-        {
-            if (world.Side == EnumAppSide.Server && be.TryInsertCrucible(byPlayer)) return true;
-            if (be.HasBowl) return true;
-        }
+            return be.OnInteract(byPlayer);
 
         return base.OnBlockInteractStart(world, byPlayer, blockSel);
-    }
-
-    public override void OnBlockBroken(IWorldAccessor world, BlockPos pos, IPlayer byPlayer, float dropQuantityMultiplier = 1)
-    {
-        if (world.BlockAccessor.GetBlockEntity(pos) is BETiltingCrucibleFrame be)
-            be.DropContents();
-        base.OnBlockBroken(world, pos, byPlayer, dropQuantityMultiplier);
     }
 }

@@ -1,7 +1,8 @@
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
-using Vintagestory.GameContent;
+using MetalCasting.Blocks;
+using MetalCasting.BlockEntities;
 
 namespace MetalCasting
 {

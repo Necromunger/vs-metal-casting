@@ -8,7 +8,7 @@
 	"creativeinventory": { "general": ["*-n"] },
 	"maxStackSize": 16,
 	"textures": {
-		"iron": { "base": "game:block/metal/plate/iron" },
+		"metal": { "base": "game:block/metal/ingot/tinbronze" },
 		"wood": { "base": "game:block/wood/debarked/oak" }
 	},
 	"shapeByType": {

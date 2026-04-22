@@ -1,11 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
+using MetalCasting.Blocks;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 
-namespace MetalCasting;
+namespace MetalCasting.BlockEntities;
 
 public class BERunner : BlockEntity
 {

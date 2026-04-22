@@ -1,8 +1,9 @@
+using MetalCasting.BlockEntities;
 using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
 using Vintagestory.GameContent;
 
-namespace MetalCasting;
+namespace MetalCasting.Blocks;
 
 public class BlockSprout : Block
 {
