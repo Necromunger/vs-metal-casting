@@ -1,5 +1,5 @@
-using System;
 using System.Linq;
+using MetalCasting;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
@@ -10,17 +10,15 @@ namespace MetalCasting.BlockEntities;
 public class BECrucibleFurnace : BlockEntityContainer, IHeatSource
 {
     public const int FuelSlotId = 0;
-    private const float MaxTemp = 1300f;
-    private const float HeatRatePerSec = 40f;
-    private const float CoolRatePerSec = 10f;
-    private const float DefaultBurnDuration = 45f;
     private const int TickIntervalMs = 500;
 
     private readonly InventoryGeneric inv;
 
     private bool burning;
-    private float partialFuelConsumed;
-    private float temperature = 20f;
+    private float fuelBurnTime;
+    private float maxFuelBurnTime;
+    private float maxTemperature = HeatMath.AmbientTemperature;
+    private float temperature = HeatMath.AmbientTemperature;
 
     public override InventoryBase Inventory => inv;
     public override string InventoryClassName => "cruciblefurnace";
@@ -48,41 +46,42 @@ public class BECrucibleFurnace : BlockEntityContainer, IHeatSource
     {
         if (burning)
         {
-            if (FuelSlot.Empty)
+            fuelBurnTime -= dt;
+            if (fuelBurnTime <= 0f && !ConsumeNextFuel())
             {
                 ExtinguishInternal();
-                return;
             }
 
-            var combust = FuelSlot.Itemstack.Collectible.CombustibleProps;
-            float burnDuration = (combust?.BurnDuration > 0) ? combust.BurnDuration : DefaultBurnDuration;
-
-            partialFuelConsumed += dt / burnDuration;
-            if (partialFuelConsumed >= 1f)
+            if (burning)
             {
-                FuelSlot.TakeOut(1);
-                FuelSlot.MarkDirty();
-                partialFuelConsumed = 0f;
-                if (FuelSlot.Empty)
-                {
-                    ExtinguishInternal();
-                    return;
-                }
+                temperature = HeatMath.ChangeTemperature(temperature, maxTemperature, dt);
             }
-
-            temperature = Math.Min(MaxTemp, temperature + HeatRatePerSec * dt);
         }
         else
         {
-            temperature = Math.Max(20f, temperature - CoolRatePerSec * dt);
+            temperature = HeatMath.ChangeTemperature(temperature, HeatMath.AmbientTemperature, dt);
         }
 
+        HeatInventoryAbove(dt);
         MarkDirty(false);
+    }
+
+    private void HeatInventoryAbove(float dt)
+    {
+        if (Api?.Side != EnumAppSide.Server || temperature <= HeatMath.AmbientTemperature) return;
+
+        var abovePos = Pos.UpCopy();
+        if (Api.World.BlockAccessor.GetBlockEntity(abovePos) is MetalCasting.BETiltingCrucibleFrame frame)
+        {
+            frame.ReceiveHeat(temperature, dt);
+        }
     }
 
     public void Ignite()
     {
         if (burning || FuelSlot.Empty) return;
+        if (!ConsumeNextFuel()) return;
+
         burning = true;
         SwapVariant("lit");
         MarkDirty(true);
@@ -91,9 +90,25 @@ public class BECrucibleFurnace : BlockEntityContainer, IHeatSource
     private void ExtinguishInternal()
     {
         burning = false;
-        partialFuelConsumed = 0f;
+        fuelBurnTime = 0f;
+        maxFuelBurnTime = 0f;
+        maxTemperature = HeatMath.AmbientTemperature;
         SwapVariant("unlit");
         MarkDirty(true);
+    }
+
+    private bool ConsumeNextFuel()
+    {
+        if (FuelSlot.Empty) return false;
+
+        var combust = FuelSlot.Itemstack.Collectible.GetCombustibleProperties(Api.World, FuelSlot.Itemstack, null);
+        if (combust == null || combust.BurnDuration <= 0 || combust.BurnTemperature <= 0) return false;
+
+        fuelBurnTime = maxFuelBurnTime = combust.BurnDuration;
+        maxTemperature = combust.BurnTemperature;
+        FuelSlot.TakeOut(1);
+        FuelSlot.MarkDirty();
+        return true;
     }
 
     private void SwapVariant(string newState)
@@ -158,15 +173,19 @@ public class BECrucibleFurnace : BlockEntityContainer, IHeatSource
     {
         base.FromTreeAttributes(tree, world);
         burning = tree.GetBool("burning");
-        partialFuelConsumed = tree.GetFloat("partialFuelConsumed");
-        temperature = tree.GetFloat("temperature", 20f);
+        fuelBurnTime = tree.GetFloat("fuelBurnTime");
+        maxFuelBurnTime = tree.GetFloat("maxFuelBurnTime");
+        maxTemperature = tree.GetFloat("maxTemperature", HeatMath.AmbientTemperature);
+        temperature = tree.GetFloat("temperature", HeatMath.AmbientTemperature);
     }
 
     public override void ToTreeAttributes(ITreeAttribute tree)
     {
         base.ToTreeAttributes(tree);
         tree.SetBool("burning", burning);
-        tree.SetFloat("partialFuelConsumed", partialFuelConsumed);
+        tree.SetFloat("fuelBurnTime", fuelBurnTime);
+        tree.SetFloat("maxFuelBurnTime", maxFuelBurnTime);
+        tree.SetFloat("maxTemperature", maxTemperature);
         tree.SetFloat("temperature", temperature);
     }
 }

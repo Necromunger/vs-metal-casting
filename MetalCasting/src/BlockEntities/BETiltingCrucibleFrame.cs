@@ -17,24 +17,34 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
     public const int OreSlotStart = 1;
     public const int OreSlotCount = 12;
     private const int TotalSlots = 1 + OreSlotCount;
-    private const int HeatTickMs = 500;
-    private const float HeatRatePerSec = 80f; //TODO: removing this, its driven by used coke
-    private const float CoolRatePerSec = 20f;
-    private const float MinSmeltTemp = 1000f; //TODO: removing this, its driven by used coke
-    private const int UnitsPerOreItem = 5;
+    private const int FrameTickMs = 500;
+    private const int ClientVisualTickMs = 30;
     private const int PourRatePerTick = 4;
+    private const float MaxTiltDeg = 45f;
+    private const float TiltSpeed = 3.5f;
+    private static readonly Vec3f TiltPivot = new(15f / 16f, 8.7f / 16f, 8f / 16f);
+    private static readonly string[] StaticFrameElements = ["Cube12", "Cube14", "Cube15", "Cube16"];
+    private static readonly string[] MovingFrameElements =
+    [
+        "Cube2", "Cube3", "Cube4", "Cube5", "Cube6", "Cube7", "Cube8", "Cube9",
+        "Cube10", "Cube11", "Cube13", "Cube17", "Cube22", "Handle"
+    ];
 
     private bool isTilted;
+    private float inputStackCookingTime;
+    private float visualTilt;
     public bool IsTilted => isTilted;
 
     private readonly InventoryGeneric inv;
     private GuiDialogTiltingCrucibleFrame clientDialog;
 
     // Rendering
-    private MeshData frameMesh;
+    private MeshData staticFrameMesh;
+    private MeshData movingFrameMesh;
     private MeshData bowlMesh;
     private int frameBuiltForBlockId = -1;
     private int bowlBuiltForBlockId = -1;
+    private Vec3f frameAnchor;
     private const string CrucibleAttachmentCode = "CruciblePoint";
 
     public override InventoryBase Inventory => inv;
@@ -80,13 +90,23 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         inv.SlotModified += OnSlotModified;
         if (api.Side == EnumAppSide.Server)
         {
-            RegisterGameTickListener(OnHeatTick, HeatTickMs);
+            RegisterGameTickListener(OnFrameTick, FrameTickMs);
+        }
+        else
+        {
+            visualTilt = isTilted ? 1f : 0f;
+            RegisterGameTickListener(OnClientVisualTick, ClientVisualTickMs);
         }
     }
 
     private void OnSlotModified(int slotId)
     {
         MarkDirty(true);
+        if (slotId == BowlSlotId || (slotId >= OreSlotStart && slotId < OreSlotStart + OreSlotCount))
+        {
+            inputStackCookingTime = 0f;
+        }
+
         if (slotId == BowlSlotId)
         {
             bowlMesh = null;
@@ -99,25 +119,68 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         }
     }
 
+    private void OnClientVisualTick(float dt)
+    {
+        float target = isTilted ? 1f : 0f;
+        float prev = visualTilt;
+
+        if (visualTilt < target)
+        {
+            visualTilt = Math.Min(target, visualTilt + dt * TiltSpeed);
+        }
+        else if (visualTilt > target)
+        {
+            visualTilt = Math.Max(target, visualTilt - dt * TiltSpeed);
+        }
+
+        if (Math.Abs(visualTilt - prev) > 0.0001f && Api is ICoreClientAPI capi)
+        {
+            capi.World.BlockAccessor.MarkBlockDirty(Pos);
+        }
+    }
+
     public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tesselator)
     {
-        if (Api is ICoreClientAPI capi)
+        if (Api is not ICoreClientAPI capi) return false;
+
+        EnsureFrameMeshes(capi);
+        EnsureBowlMesh(capi);
+
+        var block = capi.World.BlockAccessor.GetBlock(Pos);
+        float tiltDeg = MaxTiltDeg * visualTilt;
+
+        if (staticFrameMesh != null)
         {
-            EnsureFrameMesh(capi);
-            EnsureBowlMesh(capi);
+            var mesh = CopyMesh(staticFrameMesh);
+            ApplyStaticFrameTransform(mesh, block);
+            mesher.AddMeshData(mesh);
         }
-        if (frameMesh == null) return false;
-        mesher.AddMeshData(frameMesh);
-        if (HasBowl && bowlMesh != null) mesher.AddMeshData(bowlMesh);
+
+        if (movingFrameMesh != null)
+        {
+            var mesh = CopyMesh(movingFrameMesh);
+            ApplyMovingAssemblyTransform(mesh, block, tiltDeg);
+            mesher.AddMeshData(mesh);
+        }
+
+        if (HasBowl && bowlMesh != null)
+        {
+            var mesh = CopyMesh(bowlMesh);
+            ApplyBowlTransform(mesh, block, tiltDeg);
+            mesher.AddMeshData(mesh);
+        }
+
         return true;
     }
 
-    private void EnsureFrameMesh(ICoreClientAPI capi)
+    private void EnsureFrameMeshes(ICoreClientAPI capi)
     {
         var block = capi.World.BlockAccessor.GetBlock(Pos);
         int id = block?.Id ?? -1;
-        if (id == frameBuiltForBlockId && frameMesh != null) return;
-        frameMesh = null;
+        if (id == frameBuiltForBlockId && (staticFrameMesh != null || movingFrameMesh != null)) return;
+
+        staticFrameMesh = null;
+        movingFrameMesh = null;
         frameBuiltForBlockId = id;
 
         if (block?.Shape?.Base == null) return;
@@ -127,13 +190,21 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         var shape = Shape.TryGet(capi, shapePath);
         if (shape == null) return;
 
-        var rot = new Vec3f(block.Shape.rotateX, block.Shape.rotateY, block.Shape.rotateZ);
+        frameAnchor = GetFrameCrucibleAnchor(shape);
+
         capi.Tesselator.TesselateShape(
             typeForLogging: block.Code.ToString(),
             shapeBase: shape,
-            modeldata: out frameMesh,
+            modeldata: out staticFrameMesh,
             texSource: capi.Tesselator.GetTextureSource(block),
-            meshRotationDeg: rot);
+            selectiveElements: StaticFrameElements);
+
+        capi.Tesselator.TesselateShape(
+            typeForLogging: block.Code.ToString() + "-moving",
+            shapeBase: shape,
+            modeldata: out movingFrameMesh,
+            texSource: capi.Tesselator.GetTextureSource(block),
+            selectiveElements: MovingFrameElements);
     }
 
     private void EnsureBowlMesh(ICoreClientAPI capi)
@@ -163,36 +234,71 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
             shapeBase: shape,
             modeldata: out bowlMesh,
             texSource: capi.Tesselator.GetTextureSource(bowlBlock));
+    }
 
-        // Translate to the attachment point the shape author defined on the frame
-        var frameBlock = capi.World.BlockAccessor.GetBlock(Pos);
-        var frameAnchor = GetFrameCrucibleAnchor(capi, frameBlock);
-        if (frameAnchor != null)
-        {
-            bowlMesh.Translate(frameAnchor.X, frameAnchor.Y, frameAnchor.Z);
-        }
+    private static MeshData CopyMesh(MeshData mesh)
+    {
+        return mesh?.Clone();
+    }
 
-        // Match the frame's rotation so the bowl sits square in rotated variants
+    private void ApplyStaticFrameTransform(MeshData mesh, Block frameBlock)
+    {
+        if (mesh == null) return;
+
+        float frameRotY = frameBlock?.Shape?.rotateY ?? 0f;
+        if (Math.Abs(frameRotY) <= 0.01f) return;
+
+        var m = new Matrixf();
+        m.Translate(0.5f, 0f, 0.5f);
+        m.RotateY(frameRotY * GameMath.DEG2RAD);
+        m.Translate(-0.5f, 0f, -0.5f);
+        mesh.MatrixTransform(m.Values);
+    }
+
+    private void ApplyMovingAssemblyTransform(MeshData mesh, Block frameBlock, float tiltDeg)
+    {
+        if (mesh == null) return;
+
+        var m = new Matrixf();
+        m.Translate(TiltPivot.X, TiltPivot.Y, TiltPivot.Z);
+        m.RotateX(-tiltDeg * GameMath.DEG2RAD);
+        m.Translate(-TiltPivot.X, -TiltPivot.Y, -TiltPivot.Z);
+
         float frameRotY = frameBlock?.Shape?.rotateY ?? 0f;
         if (Math.Abs(frameRotY) > 0.01f)
         {
-            var m = new Matrixf();
             m.Translate(0.5f, 0f, 0.5f);
             m.RotateY(frameRotY * GameMath.DEG2RAD);
             m.Translate(-0.5f, 0f, -0.5f);
-            bowlMesh.MatrixTransform(m.Values);
         }
+
+        mesh.MatrixTransform(m.Values);
     }
 
-    private static Vec3f GetFrameCrucibleAnchor(ICoreClientAPI capi, Block frameBlock)
+    private void ApplyBowlTransform(MeshData mesh, Block frameBlock, float tiltDeg)
     {
-        if (frameBlock?.Shape?.Base == null) return null;
+        if (mesh == null) return;
 
-        var shapePath = frameBlock.Shape.Base.Clone()
-            .WithPathAppendixOnce(".json")
-            .WithPathPrefixOnce("shapes/");
+        var anchor = frameAnchor ?? new Vec3f();
+        var m = new Matrixf();
+        m.Translate(anchor.X, anchor.Y, anchor.Z);
+        m.Translate(TiltPivot.X, TiltPivot.Y, TiltPivot.Z);
+        m.RotateX(-tiltDeg * GameMath.DEG2RAD);
+        m.Translate(-TiltPivot.X, -TiltPivot.Y, -TiltPivot.Z);
 
-        var shape = Shape.TryGet(capi, shapePath);
+        float frameRotY = frameBlock?.Shape?.rotateY ?? 0f;
+        if (Math.Abs(frameRotY) > 0.01f)
+        {
+            m.Translate(0.5f, 0f, 0.5f);
+            m.RotateY(frameRotY * GameMath.DEG2RAD);
+            m.Translate(-0.5f, 0f, -0.5f);
+        }
+
+        mesh.MatrixTransform(m.Values);
+    }
+
+    private static Vec3f GetFrameCrucibleAnchor(Shape shape)
+    {
         if (shape?.Elements == null) return null;
 
         foreach (var el in shape.Elements)
@@ -232,8 +338,8 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         var slot = byPlayer?.InventoryManager?.ActiveHotbarSlot;
         bool emptyHand = slot?.Itemstack == null;
 
-        // Empty hand + bowl holds liquid → toggle tilt (authoritative on server)
-        if (emptyHand && BowlHasLiquid)
+        // Empty hand toggles pouring posture; if the bowl empties while tilted, the player can still untilt it.
+        if (emptyHand && (BowlHasLiquid || isTilted))
         {
             if (Api.Side == EnumAppSide.Server) ToggleTilt();
             return true;
@@ -254,34 +360,47 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
 
     public void ToggleTilt()
     {
-        if (!BowlHasLiquid) { isTilted = false; return; }
         isTilted = !isTilted;
         MarkDirty(true);
     }
 
-    private void OnHeatTick(float dt)
+    private void OnFrameTick(float dt)
     {
-        if (!HasBowl) return;
-
-        float furnaceTemp = GetFurnaceTemperature();
-        float newTemp = ApproachTemperature(BowlTemperature, furnaceTemp, dt);
-        ApplyTemperature(BowlSlot.Itemstack, newTemp);
-
-        if (BowlHasLiquid)
+        if (BowlHasLiquid && isTilted)
         {
-            if (isTilted) TryPourForward();
+            TryPourForward();
             MarkDirty(false);
-            return;
         }
+    }
 
-        for (int i = OreSlotStart; i < OreSlotStart + OreSlotCount; i++)
+    public void ReceiveHeat(float sourceTemperature, float dt)
+    {
+        if (!HasBowl || sourceTemperature <= HeatMath.AmbientTemperature) return;
+
+        var cookingSlotsProvider = new CookingSlotProvider(GetOreSlots());
+        bool changed = HeatMath.HeatSlot(Api.World, BowlSlot, sourceTemperature, dt, cookingSlotsProvider);
+
+        if (!BowlHasLiquid)
         {
-            if (inv[i].Itemstack != null) ApplyTemperature(inv[i].Itemstack, newTemp);
+            foreach (var slot in cookingSlotsProvider.Slots)
+            {
+                changed |= HeatMath.HeatSlot(Api.World, slot, sourceTemperature, dt);
+            }
+
+            changed |= UpdateVanillaSmelting(cookingSlotsProvider, dt);
         }
 
-        MarkDirty(false);
+        if (changed) MarkDirty(false);
+    }
 
-        if (newTemp >= MinSmeltTemp) TrySmelt(newTemp);
+    private ItemSlot[] GetOreSlots()
+    {
+        var slots = new ItemSlot[OreSlotCount];
+        for (int i = 0; i < OreSlotCount; i++)
+        {
+            slots[i] = inv[OreSlotStart + i];
+        }
+        return slots;
     }
 
     private BlockFacing GetFacing()
@@ -318,7 +437,7 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         {
             int share = Math.Min(PourRatePerTick, contents.Value);
             int before = share;
-            PourIntoSink(sink, contents.Key, ref share, temp);
+            LiquidMetalUtil.PourIntoSink(sink, contents.Key, ref share, temp);
             int poured = before - share;
             if (poured > 0) SubtractBowlUnits(smelted, bowl, poured);
             return;
@@ -336,25 +455,6 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         }
     }
 
-    private static void PourIntoSink(ILiquidMetalSink sink, ItemStack metal, ref int amount, float temperature)
-    {
-        if (sink is BlockEntityIngotMold dual && dual.QuantityMolds > 1)
-        {
-            dual.IsRightSideSelected = false;
-            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-            if (amount > 0)
-            {
-                dual.IsRightSideSelected = true;
-                sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-            }
-        }
-        else
-        {
-            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-        }
-        sink.OnPourOver();
-    }
-
     private void SubtractBowlUnits(BlockSmeltedContainer smelted, ItemStack bowl, int poured)
     {
         int remaining = bowl.Attributes.GetInt("units") - poured;
@@ -367,7 +467,6 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
                 if (emptyBlock != null)
                 {
                     BowlSlot.Itemstack = new ItemStack(emptyBlock);
-                    isTilted = false;
                 }
             }
         }
@@ -379,111 +478,103 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         MarkDirty(true);
     }
 
-    private float GetFurnaceTemperature()
+    private bool UpdateVanillaSmelting(ISlotProvider cookingSlotsProvider, float dt)
     {
-        var beLow = Api.World.BlockAccessor.GetBlockEntity(Pos.DownCopy());
-        if (beLow is not BECrucibleFurnace furnace) return 20f;
-        return furnace.Temperature;
-    }
-
-    private static float ApproachTemperature(float cur, float target, float dt)
-    {
-        if (cur < target) return Math.Min(target, cur + HeatRatePerSec * dt);
-        if (cur > target) return Math.Max(target, cur - CoolRatePerSec * dt);
-        return cur;
-    }
-
-    private void ApplyTemperature(ItemStack stack, float temp)
-    {
-        if (stack?.Collectible == null) return;
-        stack.Collectible.SetTemperature(Api.World, stack, temp, delayCooldown: true);
-    }
-
-    private void TrySmelt(float temperature)
-    {
-        var ores = new List<ItemStack>();
-        for (int i = OreSlotStart; i < OreSlotStart + OreSlotCount; i++)
-        {
-            if (!inv[i].Empty) ores.Add(inv[i].Itemstack);
-        }
-        if (ores.Count == 0) return;
-
-        // Ensure every ore is past its melting point
-        foreach (var ore in ores)
-        {
-            float mp = ore.Collectible.GetMeltingPoint(Api.World, null, new DummySlot(ore));
-            if (mp <= 0 || temperature < mp) return;
-        }
-
-        // Aggregate by smelted result (metal code)
-        var totals = new Dictionary<string, int>();
-        foreach (var ore in ores)
-        {
-            var smelted = ore.Collectible.CombustibleProps?.SmeltedStack?.ResolvedItemstack;
-            if (smelted == null) continue;
-            string metalCode = smelted.Collectible.Code.ToString();
-            int units = ore.StackSize * UnitsPerOreItem;
-            totals.TryGetValue(metalCode, out int prior);
-            totals[metalCode] = prior + units;
-        }
-        if (totals.Count == 0) return;
-
-        // Pick the dominant metal (MVP: single-metal smelt; if mixed, winner takes total)
-        string winnerCode = null;
-        int winnerUnits = 0;
-        int allUnits = 0;
-        foreach (var kv in totals)
-        {
-            allUnits += kv.Value;
-            if (kv.Value > winnerUnits) { winnerUnits = kv.Value; winnerCode = kv.Key; }
-        }
-        if (winnerCode == null) return;
-
-        var outputStack = ResolveStack(winnerCode);
-        if (outputStack == null) return;
-
-        // Swap bowl to the -smelted variant
         var bowl = BowlSlot.Itemstack;
-        string bowlColor = ExtractBowlColor(bowl);
-        if (bowlColor == null) return;
-
-        var smeltedBlock = Api.World.GetBlock(new AssetLocation("metalcasting", $"largecrucible-{bowlColor}-smelted"));
-        if (smeltedBlock == null) return;
-
-        var newBowl = new ItemStack(smeltedBlock);
-        newBowl.Attributes.SetItemstack("output", outputStack);
-        newBowl.Attributes.SetInt("units", allUnits);
-        newBowl.Collectible.SetTemperature(Api.World, newBowl, temperature, delayCooldown: false);
-
-        inv[BowlSlotId].Itemstack = newBowl;
-        inv[BowlSlotId].MarkDirty();
-
-        for (int i = OreSlotStart; i < OreSlotStart + OreSlotCount; i++)
+        if (bowl?.Collectible is not BlockSmeltingContainer)
         {
-            inv[i].Itemstack = null;
-            inv[i].MarkDirty();
+            return ResetCookingProgress();
         }
 
+        if (bowl.Collectible.OnSmeltAttempt(inv))
+        {
+            MarkDirty(true);
+        }
+
+        if (!CanSmeltInput(cookingSlotsProvider))
+        {
+            return ResetCookingProgress();
+        }
+
+        float meltingPoint = bowl.Collectible.GetMeltingPoint(Api.World, cookingSlotsProvider, BowlSlot);
+        if (meltingPoint <= 0f)
+        {
+            return ResetCookingProgress();
+        }
+
+        float before = inputStackCookingTime;
+        float inputStackTemp = HeatMath.GetLowestStackTemperature(Api.World, cookingSlotsProvider);
+        if (inputStackTemp >= meltingPoint)
+        {
+            float tempMul = inputStackTemp / meltingPoint;
+            inputStackCookingTime += (float)GameMath.Clamp((int)tempMul, 1, 30) * dt;
+        }
+        else if (inputStackCookingTime > 0f)
+        {
+            inputStackCookingTime = Math.Max(0f, inputStackCookingTime - 1f);
+        }
+
+        float maxCookingTime = bowl.Collectible.GetMeltingDuration(Api.World, cookingSlotsProvider, BowlSlot);
+        if (maxCookingTime > 0f && inputStackCookingTime > maxCookingTime)
+        {
+            SmeltItemsWithVanilla(cookingSlotsProvider);
+            return true;
+        }
+
+        return Math.Abs(inputStackCookingTime - before) > HeatMath.TemperatureEpsilon;
+    }
+
+    private bool ResetCookingProgress()
+    {
+        if (inputStackCookingTime <= 0f) return false;
+        inputStackCookingTime = 0f;
+        return true;
+    }
+
+    private bool CanSmeltInput(ISlotProvider cookingSlotsProvider)
+    {
+        var bowl = BowlSlot.Itemstack;
+        if (bowl == null) return false;
+        if (!bowl.Collectible.CanSmelt(Api.World, cookingSlotsProvider, bowl, null)) return false;
+
+        var combust = bowl.Collectible.GetCombustibleProperties(Api.World, bowl, null);
+        return combust == null || !combust.RequiresContainer;
+    }
+
+    private void SmeltItemsWithVanilla(ISlotProvider cookingSlotsProvider)
+    {
+        var bowl = BowlSlot.Itemstack;
+        if (bowl == null) return;
+
+        var outputSlot = new DummySlot();
+        bowl.Collectible.DoSmelt(Api.World, cookingSlotsProvider, BowlSlot, outputSlot);
+        inputStackCookingTime = 0f;
+
+        if (outputSlot.Itemstack != null)
+        {
+            BowlSlot.Itemstack = outputSlot.Itemstack;
+        }
+
+        BowlSlot.MarkDirty();
+        foreach (var slot in cookingSlotsProvider.Slots)
+        {
+            slot.MarkDirty();
+        }
+
+        bowlMesh = null;
+        bowlBuiltForBlockId = -1;
         MarkDirty(true);
-        Api.Logger.Notification($"[MC] Smelted {allUnits} units of {winnerCode} at {Pos}");
+        Api.Logger.Notification($"[MC] Smelted crucible contents at {Pos} using vanilla smelting");
     }
 
-    private ItemStack ResolveStack(string fullCode)
+    private sealed class CookingSlotProvider : ISlotProvider
     {
-        var loc = new AssetLocation(fullCode);
-        var item = Api.World.GetItem(loc);
-        if (item != null) return new ItemStack(item);
-        var block = Api.World.GetBlock(loc);
-        if (block != null) return new ItemStack(block);
-        return null;
-    }
+        public ItemSlot[] Slots { get; }
 
-    private static string ExtractBowlColor(ItemStack bowl)
-    {
-        var path = bowl?.Collectible?.Code?.Path;
-        if (path == null) return null;
-        var parts = path.Split('-');
-        return parts.Length >= 3 ? parts[1] : null;
+        public CookingSlotProvider(ItemSlot[] slots)
+        {
+            Slots = slots;
+        }
     }
 
     public override void GetBlockInfo(IPlayer forPlayer, StringBuilder dsc)
@@ -503,6 +594,7 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
     {
         base.FromTreeAttributes(tree, world);
         isTilted = tree.GetBool("isTilted");
+        inputStackCookingTime = tree.GetFloat("inputStackCookingTime");
         if (Api is ICoreClientAPI && clientDialog != null && clientDialog.IsOpened())
         {
             clientDialog.RebuildLayout();
@@ -513,5 +605,6 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
     {
         base.ToTreeAttributes(tree);
         tree.SetBool("isTilted", isTilted);
+        tree.SetFloat("inputStackCookingTime", inputStackCookingTime);
     }
 }

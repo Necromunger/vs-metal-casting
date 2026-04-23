@@ -76,9 +76,8 @@ public class BlockRunner : Block
         if (!DistributeCrucibleIntoMolds(world, crucible, crucibleSlot, molds, byPlayer)) return;
 
         foreach (var rpos in net.Runners)
-        {
             if (world.BlockAccessor.GetBlockEntity(rpos) is BERunner rbe) rbe.BeginFlow();
-        }
+
         foreach (var sbe in sprouts) sbe.BeginFlow();
 
         float temperature = crucibleSlot.Itemstack.Collectible.GetTemperature(world, crucibleSlot.Itemstack);
@@ -91,6 +90,7 @@ public class BlockRunner : Block
                 anchorPos.Z + 0.5,
                 null);
         }
+
         SpawnPourParticles(world, anchorPos, temperature);
     }
 
@@ -104,6 +104,7 @@ public class BlockRunner : Block
         BlockSmeltedContainer.bigMetalSparks.MinPos = target.AddCopy(-0.25, 0.0, -0.25);
         BlockSmeltedContainer.bigMetalSparks.AddPos.Set(0.5, 0.0, 0.5);
         BlockSmeltedContainer.bigMetalSparks.VertexFlags = (byte)GameMath.Clamp((int)temperature - 770, 48, 128);
+
         world.SpawnParticles(BlockSmeltedContainer.bigMetalSparks, null);
 
         world.SpawnParticles(
@@ -155,7 +156,7 @@ public class BlockRunner : Block
             if (remaining <= 0) break;
             int share = System.Math.Min(UnitsPerTickPerMold, remaining);
             int before = share;
-            PourIntoSink(sink, metalStack, ref share, temperature);
+            LiquidMetalUtil.PourIntoSink(sink, metalStack, ref share, temperature);
             totalPoured += before - share;
         }
 
@@ -174,24 +175,5 @@ public class BlockRunner : Block
         }
         crucibleSlot.MarkDirty();
         return true;
-    }
-
-    private static void PourIntoSink(ILiquidMetalSink sink, ItemStack metal, ref int amount, float temperature)
-    {
-        if (sink is BlockEntityIngotMold dual && dual.QuantityMolds > 1)
-        {
-            dual.IsRightSideSelected = false;
-            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-            if (amount > 0)
-            {
-                dual.IsRightSideSelected = true;
-                sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-            }
-        }
-        else
-        {
-            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
-        }
-        sink.OnPourOver();
     }
 }

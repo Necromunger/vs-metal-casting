@@ -5,7 +5,7 @@ using MetalCasting.BlockEntities;
 
 namespace MetalCasting.Blocks;
 
-public class BlockCrucibleFurnace : Block, IIgnitable
+public class BlockCrucibleFurnace : Block, IIgnitable, IHeatSource
 {
     public EnumIgniteState OnTryIgniteBlock(EntityAgent byEntity, BlockPos pos, float secondsIgniting)
     {
@@ -29,6 +29,16 @@ public class BlockCrucibleFurnace : Block, IIgnitable
     public EnumIgniteState OnTryIgniteStack(EntityAgent byEntity, BlockPos pos, ItemSlot slot, float secondsIgniting)
     {
         return EnumIgniteState.NotIgnitable;
+    }
+
+    public float GetHeatStrength(IWorldAccessor world, BlockPos heatSourcePos, BlockPos heatReceiverPos)
+    {
+        if (world?.BlockAccessor.GetBlockEntity(heatSourcePos) is BECrucibleFurnace be)
+        {
+            return be.GetHeatStrength(world, heatSourcePos, heatReceiverPos);
+        }
+
+        return 0f;
     }
 
     public override bool OnBlockInteractStart(IWorldAccessor world, IPlayer byPlayer, BlockSelection blockSel)

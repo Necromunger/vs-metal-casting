@@ -2,6 +2,9 @@
 	"code": "cruciblefurnace",
 	"class": "BlockCrucibleFurnace",
 	"entityClass": "BECrucibleFurnace",
+	"behaviors": [
+		{ "name": "HeatSource" }
+	],
 	"variantgroups": [
 		{ "code": "state", "states": ["unlit", "lit"] }
 	],
