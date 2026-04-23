@@ -6,6 +6,8 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.GameContent;
+using MetalCasting.BlockEntities;
+using MetalCasting.Blocks;
 
 namespace MetalCasting;
 
@@ -20,6 +22,10 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
     private const float CoolRatePerSec = 20f;
     private const float MinSmeltTemp = 1000f; //TODO: removing this, its driven by used coke
     private const int UnitsPerOreItem = 5;
+    private const int PourRatePerTick = 4;
+
+    private bool isTilted;
+    public bool IsTilted => isTilted;
 
     private readonly InventoryGeneric inv;
     private GuiDialogTiltingCrucibleFrame clientDialog;
@@ -223,6 +229,17 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
 
     public bool OnInteract(IPlayer byPlayer)
     {
+        var slot = byPlayer?.InventoryManager?.ActiveHotbarSlot;
+        bool emptyHand = slot?.Itemstack == null;
+
+        // Empty hand + bowl holds liquid → toggle tilt (authoritative on server)
+        if (emptyHand && BowlHasLiquid)
+        {
+            if (Api.Side == EnumAppSide.Server) ToggleTilt();
+            return true;
+        }
+
+        // Otherwise open GUI on client
         if (Api is ICoreClientAPI capi)
         {
             if (clientDialog == null)
@@ -235,20 +252,28 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         return true;
     }
 
+    public void ToggleTilt()
+    {
+        if (!BowlHasLiquid) { isTilted = false; return; }
+        isTilted = !isTilted;
+        MarkDirty(true);
+    }
+
     private void OnHeatTick(float dt)
     {
         if (!HasBowl) return;
 
-        float forgeTemp = GetForgeTemperature();
-        var beLow = Api.World.BlockAccessor.GetBlockEntity(Pos.DownCopy());
-        string forgeState = beLow is BlockEntityForge f
-            ? $"burning={f.IsBurning} fuel={f.FuelLevel:F1}"
-            : "not-a-forge";
-        Api.Logger.Notification($"[MC] Frame tick at {Pos} forgeTemp={forgeTemp:F1} bowlTemp={BowlTemperature:F1} | {forgeState}");
-        if (BowlHasLiquid) return;
-
-        float newTemp = ApproachTemperature(BowlTemperature, forgeTemp, dt);
+        float furnaceTemp = GetFurnaceTemperature();
+        float newTemp = ApproachTemperature(BowlTemperature, furnaceTemp, dt);
         ApplyTemperature(BowlSlot.Itemstack, newTemp);
+
+        if (BowlHasLiquid)
+        {
+            if (isTilted) TryPourForward();
+            MarkDirty(false);
+            return;
+        }
+
         for (int i = OreSlotStart; i < OreSlotStart + OreSlotCount; i++)
         {
             if (inv[i].Itemstack != null) ApplyTemperature(inv[i].Itemstack, newTemp);
@@ -259,14 +284,106 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         if (newTemp >= MinSmeltTemp) TrySmelt(newTemp);
     }
 
-    //TODO remove this entirely and base it off the passed coke
-    private const float ForgeHotTemp = 1300f;
+    private BlockFacing GetFacing()
+    {
+        var block = Api.World.BlockAccessor.GetBlock(Pos);
+        string facing = block?.Variant?["facing"];
+        return facing switch
+        {
+            "n" => BlockFacing.NORTH,
+            "e" => BlockFacing.EAST,
+            "s" => BlockFacing.SOUTH,
+            "w" => BlockFacing.WEST,
+            _ => BlockFacing.NORTH
+        };
+    }
 
-    private float GetForgeTemperature()
+    private void TryPourForward()
+    {
+        if (!BowlHasLiquid) return;
+        var bowl = BowlSlot.Itemstack;
+        if (bowl?.Collectible is not BlockSmeltedContainer smelted) return;
+
+        var contents = smelted.GetContents(Api.World, bowl);
+        if (contents.Key == null || contents.Value <= 0) return;
+
+        float temp = bowl.Collectible.GetTemperature(Api.World, bowl);
+
+        BlockFacing facing = GetFacing();
+        BlockPos targetPos = Pos.AddCopy(facing);
+
+        // 1) Direct liquid-metal sink (mold) adjacent in facing direction
+        var beTarget = Api.World.BlockAccessor.GetBlockEntity(targetPos);
+        if (beTarget is ILiquidMetalSink sink && sink.CanReceiveAny && sink.CanReceive(contents.Key))
+        {
+            int share = Math.Min(PourRatePerTick, contents.Value);
+            int before = share;
+            PourIntoSink(sink, contents.Key, ref share, temp);
+            int poured = before - share;
+            if (poured > 0) SubtractBowlUnits(smelted, bowl, poured);
+            return;
+        }
+
+        // 2) Runner network via adjacent runner
+        if (Api.World.BlockAccessor.GetBlock(targetPos) is BlockRunner)
+        {
+            var net = MetalCastingModSystem.Instance?.NetworkManager?.GetNetwork(targetPos);
+            if (net != null && net.Runners.Count > 0)
+            {
+                BlockRunner.TryPourFromCrucible(Api.World, smelted, BowlSlot, net, targetPos, null);
+                return;
+            }
+        }
+    }
+
+    private static void PourIntoSink(ILiquidMetalSink sink, ItemStack metal, ref int amount, float temperature)
+    {
+        if (sink is BlockEntityIngotMold dual && dual.QuantityMolds > 1)
+        {
+            dual.IsRightSideSelected = false;
+            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
+            if (amount > 0)
+            {
+                dual.IsRightSideSelected = true;
+                sink.ReceiveLiquidMetal(metal, ref amount, temperature);
+            }
+        }
+        else
+        {
+            sink.ReceiveLiquidMetal(metal, ref amount, temperature);
+        }
+        sink.OnPourOver();
+    }
+
+    private void SubtractBowlUnits(BlockSmeltedContainer smelted, ItemStack bowl, int poured)
+    {
+        int remaining = bowl.Attributes.GetInt("units") - poured;
+        if (remaining <= 0)
+        {
+            var emptiedCode = smelted.Attributes["emptiedBlockCode"].AsString();
+            if (emptiedCode != null)
+            {
+                var emptyBlock = Api.World.GetBlock(AssetLocation.Create(emptiedCode, smelted.Code.Domain));
+                if (emptyBlock != null)
+                {
+                    BowlSlot.Itemstack = new ItemStack(emptyBlock);
+                    isTilted = false;
+                }
+            }
+        }
+        else
+        {
+            bowl.Attributes.SetInt("units", remaining);
+        }
+        BowlSlot.MarkDirty();
+        MarkDirty(true);
+    }
+
+    private float GetFurnaceTemperature()
     {
         var beLow = Api.World.BlockAccessor.GetBlockEntity(Pos.DownCopy());
-        if (beLow is not BlockEntityForge forge) return 20f;
-        return forge.IsBurning ? ForgeHotTemp : 20f;
+        if (beLow is not BECrucibleFurnace furnace) return 20f;
+        return furnace.Temperature;
     }
 
     private static float ApproachTemperature(float cur, float target, float dt)
@@ -378,15 +495,23 @@ public class BETiltingCrucibleFrame : BlockEntityContainer
         {
             var units = BowlSlot.Itemstack.Attributes.GetInt("units");
             dsc.AppendLine($"Contents: {units} units molten");
+            dsc.AppendLine(isTilted ? "Pouring." : "Upright — right-click to tilt.");
         }
     }
 
     public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor world)
     {
         base.FromTreeAttributes(tree, world);
+        isTilted = tree.GetBool("isTilted");
         if (Api is ICoreClientAPI && clientDialog != null && clientDialog.IsOpened())
         {
             clientDialog.RebuildLayout();
         }
+    }
+
+    public override void ToTreeAttributes(ITreeAttribute tree)
+    {
+        base.ToTreeAttributes(tree);
+        tree.SetBool("isTilted", isTilted);
     }
 }

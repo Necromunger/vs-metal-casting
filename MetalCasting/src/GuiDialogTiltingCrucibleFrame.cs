@@ -39,6 +39,7 @@ public class GuiDialogTiltingCrucibleFrame : GuiDialogBlockEntity
     public void RebuildLayout()
     {
         bool showOreGrid = be.HasBowl && !be.BowlHasLiquid;
+        bool showHint = !be.HasBowl;
 
         const int oreCols = 4;
         const int oreRows = 3;
@@ -47,6 +48,7 @@ public class GuiDialogTiltingCrucibleFrame : GuiDialogBlockEntity
         ElementBounds bgBounds = ElementBounds.Fill.WithFixedPadding(GuiStyle.ElementToDialogPadding);
         bgBounds.BothSizing = ElementSizing.FitToChildren;
 
+        ElementBounds hintBounds = null;
         ElementBounds oreGridBounds = null;
         ElementBounds bowlSlotBounds;
 
@@ -54,6 +56,11 @@ public class GuiDialogTiltingCrucibleFrame : GuiDialogBlockEntity
         {
             oreGridBounds = ElementStdBounds.SlotGrid(EnumDialogArea.None, 0, 30, oreCols, oreRows);
             bowlSlotBounds = ElementStdBounds.SlotGrid(EnumDialogArea.None, 0, 0, 1, 1).FixedUnder(oreGridBounds, 10);
+        }
+        else if (showHint)
+        {
+            hintBounds = ElementBounds.Fixed(0, 30, 280, 50);
+            bowlSlotBounds = ElementStdBounds.SlotGrid(EnumDialogArea.None, 0, 0, 1, 1).FixedUnder(hintBounds, 10);
         }
         else
         {
@@ -69,6 +76,9 @@ public class GuiDialogTiltingCrucibleFrame : GuiDialogBlockEntity
         if (showOreGrid)
             composer.AddItemSlotGrid(Inventory, DoSendPacket, oreCols, oreSlotIds, oreGridBounds, "oreslots");
 
+        if (showHint)
+            composer.AddStaticText("Insert a large crucible to load ores.", CairoFont.WhiteDetailText(), hintBounds, "hint");
+
         composer.AddItemSlotGrid(
             Inventory,
             DoSendPacket,
@@ -80,11 +90,6 @@ public class GuiDialogTiltingCrucibleFrame : GuiDialogBlockEntity
 
         composer.EndChildElements();
         SingleComposer = composer.Compose();
-    }
-
-    private void DoSendPacket(object p)
-    {
-        capi.Network.SendBlockEntityPacket(pos.X, pos.InternalY, pos.Z, p);
     }
 
     private void OnTitleBarClose()

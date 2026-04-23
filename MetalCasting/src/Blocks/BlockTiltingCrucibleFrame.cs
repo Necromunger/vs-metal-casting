@@ -10,9 +10,9 @@ public class BlockTiltingCrucibleFrame : Block
         if (!base.CanPlaceBlock(world, byPlayer, blockSel, ref failureCode)) return false;
 
         var belowBlock = world.BlockAccessor.GetBlock(blockSel.Position.DownCopy());
-        if (belowBlock is not BlockForge)
+        if (belowBlock is not BlockCrucibleFurnace)
         {
-            failureCode = "requireforgebelow";
+            failureCode = "requirecruciblefurnacebelow";
             return false;
         }
 
